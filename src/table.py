@@ -4,8 +4,11 @@ EMPTY = 'E'
 SHIP= 'S'
 HIT = 'H'
 MISS = 'M'
+RESTRICT = 'R'
 
 TABLE_SIZE = 10
+
+OFFSETS = [(-1,0),(1,0),(0,1),(0,-1)]
 
 FLEET_CONFIG = {
         "Carrier": 5,
@@ -58,6 +61,15 @@ class Table:
                         return False
         return True
 
+    def apply_buffer_arround_ships(self, ship_coords):
+        for cx, cy in ship_coords:
+            for dx, dy in OFFSETS:
+                nx = cx + dx
+                ny = cy + dy
+                if self.is_valid_coordinate(nx,ny):
+                    if self.grid[nx][ny] == EMPTY:
+                        self.grid[nx][ny] = RESTRICT
+
     def place_ship(self, name, x, y, horizontal) -> bool: 
         if name not in FLEET_CONFIG:
             raise ValueError("ship not in config") 
@@ -74,7 +86,7 @@ class Table:
             cy = y  if horizontal else y + i
             self.grid[cx][cy] = SHIP
             ship_coords.add((cx,cy))
-
+        self.apply_buffer_arround_ships(ship_coords)
         self.ships[name] = ship_coords
         return True
 
@@ -85,7 +97,7 @@ class Table:
 
         current = self.grid[x][y]
 
-        if current in (HIT,MISS):
+        if current in (HIT,MISS,RESTRICT):
             return { "valid": False, "status": "ALREADY_SHOT", "sunk": None, "game_over": False}
 
         if current == EMPTY :
@@ -116,6 +128,7 @@ class Table:
                         print(EMPTY, end='')
                     else:
                         print(c, end='')
+                print('')
         else:
             for line in self.grid:
                 print(line)
