@@ -45,8 +45,6 @@ class Table:
             # inside bounds, verify for presence of another ship
             if x + length - 1 < self.size:  
                 for i in range(length):
-                    if not self.is_valid_coordinate(x+i,y):
-                        return False
                     if self.grid[x+i][y] != EMPTY:
                         return False
         else:
@@ -55,8 +53,6 @@ class Table:
             # inside bounds, verify for presence of another ship
             if y + length - 1 < self.size: 
                 for i in range(length):
-                    if not self.is_valid_coordinate(x,y+i):
-                        return False
                     if self.grid[x][y+i] != EMPTY:
                         return False
         return True
@@ -97,10 +93,10 @@ class Table:
 
         current = self.grid[x][y]
 
-        if current in (HIT,MISS,RESTRICT):
+        if current in (HIT,MISS):
             return { "valid": False, "status": "ALREADY_SHOT", "sunk": None, "game_over": False}
 
-        if current == EMPTY :
+        if current == (EMPTY,RESTRICT):
             self.grid[x][y] = MISS
             return { "valid": True, "status": "MISS", "sunk": None, "game_over": False}
 
@@ -123,12 +119,11 @@ class Table:
     def display(self, hide_ships = False) -> None:
         if hide_ships == True:
             for line in self.grid:
-                for c in line:
-                    if c == SHIP:
-                        print(EMPTY, end='')
-                    else:
-                        print(c, end='')
-                print('')
+                line_copy = line.copy()
+                for i in range(len(line_copy)):
+                    if line_copy[i] == SHIP or line_copy[i] == RESTRICT:
+                        line_copy[i] = EMPTY   
+                print(line_copy)
         else:
             for line in self.grid:
                 print(line)
@@ -141,4 +136,4 @@ table.place_ship("Carrier", 5, 0, horizontal=True)
 table.place_ship("Battleship", 7, 0, horizontal=True)
 table.place_ship("Destroyer", 0, 0, horizontal=False)
 
-table.display()
+table.display(hide_ships=False)
