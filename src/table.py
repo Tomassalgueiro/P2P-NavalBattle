@@ -32,21 +32,29 @@ class Table:
     # placement is always from up to down or left to right, never other way so checking is easier
     # on x + len < self.size, we could add length - 1 and size - 1 but the result will be the same
     def can_place_ship(self, length, x, y, horizontal) -> bool:
+
+        if not self.is_valid_coordinate(x,y):
+            return False
+
         if horizontal:
+            if not self.is_valid_coordinate(x+length-1,y):
+                return False
             # inside bounds, verify for presence of another ship
-            if x + length < self.size:  
+            if x + length - 1 < self.size:  
                 for i in range(length):
                     if not self.is_valid_coordinate(x+i,y):
                         return False
-                    if self.grid[x+1][y] != EMPTY:
+                    if self.grid[x+i][y] != EMPTY:
                         return False
         else:
+            if not self.is_valid_coordinate(x,y+length-1):
+                return False
             # inside bounds, verify for presence of another ship
-            if y + length < self.size: 
+            if y + length - 1 < self.size: 
                 for i in range(length):
                     if not self.is_valid_coordinate(x,y+i):
                         return False
-                    if self.grid[x][y+1] != EMPTY:
+                    if self.grid[x][y+i] != EMPTY:
                         return False
         return True
 
@@ -63,7 +71,7 @@ class Table:
 
         for i in range(length):
             cx = x + i if horizontal else x
-            cy = y  if horizontal else y + 1
+            cy = y  if horizontal else y + i
             self.grid[cx][cy] = SHIP
             ship_coords.add((cx,cy))
 
@@ -81,6 +89,7 @@ class Table:
             return { "valid": False, "status": "ALREADY_SHOT", "sunk": None, "game_over": False}
 
         if current == EMPTY :
+            self.grid[x][y] = MISS
             return { "valid": True, "status": "MISS", "sunk": None, "game_over": False}
 
         self.grid[x][y] = HIT
@@ -100,9 +109,23 @@ class Table:
 
     #for each line on the grid, print it
     def display(self, hide_ships = False) -> None:
-        for line in self.grid:
-            print(line)
+        if hide_ships == True:
+            for line in self.grid:
+                for c in line:
+                    if c == SHIP:
+                        print(EMPTY, end='')
+                    else:
+                        print(c, end='')
+        else:
+            for line in self.grid:
+                print(line)
 
 table = Table()
+
+
+# 1. Edge test: Carrier (len 5) at x=5 should succeed (occupies 5, 6, 7, 8, 9)
+table.place_ship("Carrier", 5, 0, horizontal=True) 
+table.place_ship("Battleship", 7, 0, horizontal=True)
+table.place_ship("Destroyer", 0, 0, horizontal=False)
 
 table.display()
