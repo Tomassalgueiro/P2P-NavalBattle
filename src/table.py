@@ -66,6 +66,12 @@ class Table:
                     if self.grid[nx][ny] == EMPTY:
                         self.grid[nx][ny] = RESTRICT
 
+    def cleanup_buffers(self):
+        for i in range(len(self.grid)):
+            for j in range(len(self.grid)):
+                if self.grid[i][j] == RESTRICT:
+                    self.grid[i][j] = EMPTY
+
     def place_ship(self, name, x, y, horizontal) -> bool: 
         if name not in FLEET_CONFIG:
             raise ValueError("ship not in config") 
