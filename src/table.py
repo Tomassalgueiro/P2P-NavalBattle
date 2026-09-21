@@ -102,7 +102,7 @@ class Table:
         if current in (HIT,MISS):
             return { "valid": False, "status": "ALREADY_SHOT", "sunk": None, "game_over": False}
 
-        if current == (EMPTY,RESTRICT):
+        if current in (EMPTY,RESTRICT):
             self.grid[x][y] = MISS
             return { "valid": True, "status": "MISS", "sunk": None, "game_over": False}
 

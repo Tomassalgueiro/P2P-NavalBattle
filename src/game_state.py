@@ -17,7 +17,7 @@ class Game():
         self.isHost = isHost
         self.phase = GamePhase.SETUP
         self.myReady = False
-        self.opponentRead = False
+        self.opponentReady = False
         self.winner : Optional[str] = None
 
     def player_ready(self) -> bool:
@@ -30,9 +30,9 @@ class Game():
 
         # Wipe placement 'R' buffers into 'E' for the battle
         self.myTable.cleanup_buffers()
-        self.my_ready = True
+        self.myReady = True
 
-        if self.opponent_ready:
+        if self.opponentReady:
             self._start_battle()
         else:
             self.phase = GamePhase.WAITING_READY
@@ -40,8 +40,8 @@ class Game():
         return True
 
     def opponent_ready_received(self) -> None:
-        self.opponent_ready = True
-        if self.my_ready:
+        self.opponentReady = True
+        if self.myReady:
             self._start_battle()
 
     def _start_battle(self) -> None:
