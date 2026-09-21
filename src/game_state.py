@@ -7,6 +7,7 @@ class GamePhase(Enum):
     SETUP = auto()
     WAITING_READY = auto()
     MY_TURN = auto()
+    WAITING_FOR_RESULT = auto()
     OPPONENT_TURN = auto()
     GAME_OVER = auto()
 
@@ -24,11 +25,9 @@ class Game():
         if self.phase != GamePhase.SETUP:
             return False
 
-        # Ensure all fleet ships are placed
         if len(self.myTable.ships) != len(FLEET_CONFIG):
             return False
 
-        # Wipe placement 'R' buffers into 'E' for the battle
         self.myTable.cleanup_buffers()
         self.myReady = True
 
@@ -57,7 +56,7 @@ class Game():
         if not self.enemyTable.can_fire_at(x, y):
             return None
 
-        self.phase = GamePhase.OPPONENT_TURN
+        self.phase = GamePhase.WAITING_FOR_RESULT
         return (x, y)
 
     def record_shot_result(
@@ -73,6 +72,10 @@ class Game():
         if game_over:
             self.phase = GamePhase.GAME_OVER
             self.winner = "ME"
+        elif status == "ALREADY_SHOT" or status == "INVALID":
+            self.phase = GamePhase.MY_TURN
+        else:
+            self.phase = GamePhase.OPPONENT_TURN
 
     def handle_incoming_shot(self, x: int, y: int) -> dict:
         if self.phase != GamePhase.OPPONENT_TURN:

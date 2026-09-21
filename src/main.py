@@ -4,8 +4,8 @@ from game_state import Game, GamePhase
 from network import NetworkManager
 from table import EMPTY, SHIP, HIT, MISS, RESTRICT, TABLE_SIZE, FLEET_CONFIG
 
-WINDOW_WIDTH = 980
-WINDOW_HEIGHT = 640
+WINDOW_WIDTH = 1280
+WINDOW_HEIGHT = 720
 CELL_SIZE = 36
 MARGIN = 2
 BOARD_SPAN = TABLE_SIZE * (CELL_SIZE + MARGIN)
@@ -52,12 +52,10 @@ class BattleshipGUI:
         self.net = NetworkManager()
         self.game = None
 
-        # Estados de UI: 'MENU', 'CONNECTING', 'PLAYING'
         self.ui_state = "MENU"
         self.host_ip_input = "127.0.0.1"
         self.input_active = False
 
-        # Variáveis da Fase de Setup
         self.fleet_keys = list(FLEET_CONFIG.keys())
         self.current_ship_idx = 0
         self.placement_horizontal = True
@@ -66,17 +64,14 @@ class BattleshipGUI:
     def run(self):
         running = True
         while running:
-            # 1. Processar Rede
             if self.game and self.net.isConnected:
                 self.process_network()
 
-            # 2. Processar Eventos
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 self.handle_event(event)
 
-            # 3. Desenhar Ecrã
             self.screen.fill(COLOR_BG)
             if self.ui_state == "MENU":
                 self.draw_menu()
@@ -92,7 +87,6 @@ class BattleshipGUI:
         pygame.quit()
         sys.exit()
 
-    # --- Tratamento de Rede ---
     def process_network(self):
         msg = self.net.get_message()
         while msg:
@@ -126,7 +120,6 @@ class BattleshipGUI:
 
             msg = self.net.get_message()
 
-    # --- Conversão de Coordenadas ---
     def screen_to_grid(self, mouse_pos, origin):
         mx, my = mouse_pos
         ox, oy = origin
@@ -138,7 +131,6 @@ class BattleshipGUI:
             return int(gx), int(gy)
         return None
 
-    # --- Gestão de Eventos ---
     def handle_event(self, event):
         if self.ui_state == "MENU":
             self.handle_menu_event(event)
@@ -173,11 +165,10 @@ class BattleshipGUI:
                 self.host_ip_input += event.unicode
 
     def handle_gameplay_event(self, event):
-        # 1. Fase de Setup
         if self.game.phase == GamePhase.SETUP:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 self.placement_horizontal = not self.placement_horizontal
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:  # Botão direito
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
                 self.placement_horizontal = not self.placement_horizontal
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -192,34 +183,33 @@ class BattleshipGUI:
                         if success:
                             self.current_ship_idx += 1
                             if self.current_ship_idx == len(self.fleet_keys):
-                                # Todos posicionados: finalizar e avisar peer
                                 self.game.player_ready()
                                 self.net.send_message({"type": "READY"})
                                 self.status_message = "Pronto! À espera do adversário..."
 
-        # 2. Fase de Batalha (O teu turno)
         elif self.game.phase == GamePhase.MY_TURN:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 grid_pos = self.screen_to_grid(event.pos, RADAR_ORIGIN)
                 if grid_pos:
                     gx, gy = grid_pos
-                    if self.game.fire(gx, gy):
+                    shot_coords = self.game.fire(gx,gy)
+
+                    if shot_coords:
                         self.net.send_message({"type": "FIRE", "x": gx, "y": gy})
                         self.status_message = f"Fogo disparado em ({gx}, {gy})!"
+                    else:
+                        self.status_message = "Casa ja alvejada ou inválida! Escolhe outra."
 
-    # --- Renderização ---
     def draw_menu(self):
         title = self.font_large.render("NAVAL BATTLE P2P", True, COLOR_TEXT)
         self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 120)))
 
-        # Botão Host
         host_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 220, 320, 50)
         h_col = COLOR_BUTTON_HOVER if host_btn.collidepoint(pygame.mouse.get_pos()) else COLOR_BUTTON
         pygame.draw.rect(self.screen, h_col, host_btn, border_radius=6)
         h_txt = self.font_mid.render("Criar Sala (Host)", True, COLOR_TEXT)
         self.screen.blit(h_txt, h_txt.get_rect(center=host_btn.center))
 
-        # Input IP
         input_rect = pygame.Rect(WINDOW_WIDTH // 2 - 160, 290, 320, 45)
         border_col = (80, 160, 240) if self.input_active else (60, 70, 85)
         pygame.draw.rect(self.screen, COLOR_PANEL, input_rect, border_radius=6)
@@ -227,7 +217,6 @@ class BattleshipGUI:
         ip_txt = self.font_mid.render(f"IP: {self.host_ip_input}", True, COLOR_TEXT)
         self.screen.blit(ip_txt, (input_rect.x + 15, input_rect.y + 10))
 
-        # Botão Join
         join_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 350, 320, 50)
         j_col = COLOR_BUTTON_HOVER if join_btn.collidepoint(pygame.mouse.get_pos()) else COLOR_BUTTON
         pygame.draw.rect(self.screen, j_col, join_btn, border_radius=6)
@@ -287,7 +276,6 @@ class BattleshipGUI:
                 self.screen.blit(ghost_surf, (px, py))
 
     def draw_gameplay(self):
-        # 1. Barra de Estado Superior
         phase_str = ""
         if self.game.phase == GamePhase.SETUP:
             ship = self.fleet_keys[self.current_ship_idx] if self.current_ship_idx < len(self.fleet_keys) else ""
@@ -307,15 +295,12 @@ class BattleshipGUI:
         sub_lbl = self.font_small.render(self.status_message, True, COLOR_TEXT_DIM)
         self.screen.blit(sub_lbl, (60, 75))
 
-        # 2. Desenhar os Dois Tabuleiros
         self.draw_board(self.game.myTable.grid, MY_ORIGIN, "A TUA FROTA")
         self.draw_board(self.game.enemyTable.grid, RADAR_ORIGIN, "RADAR (INIMIGO)")
 
-        # 3. Fantasma de Posicionamento (se ainda estiver em setup)
         if self.game.phase == GamePhase.SETUP:
             self.draw_placement_ghost()
 
-        # 4. Banner de Fim de Jogo
         if self.game.phase == GamePhase.GAME_OVER:
             overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
             overlay.fill((10, 15, 20, 190))
