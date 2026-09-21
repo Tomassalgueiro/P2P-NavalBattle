@@ -3,6 +3,7 @@ import pygame
 from game_state import Game, GamePhase
 from network import NetworkManager
 from table import EMPTY, SHIP, HIT, MISS, RESTRICT, TABLE_SIZE, FLEET_CONFIG
+from discovery import RoomBroadcaster, RoomListener
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
@@ -52,14 +53,17 @@ class BattleshipGUI:
         self.net = NetworkManager()
         self.game = None
 
+        self.broadcaster = None
+        self.listener = None
+
+        # Estados de UI: 'MENU', 'BROWSER', 'CONNECTING', 'PLAYING'
         self.ui_state = "MENU"
-        self.host_ip_input = "127.0.0.1"
-        self.input_active = False
+        self.room_buttons = []  # Lista de tuplos: (Rect, ip, port)
 
         self.fleet_keys = list(FLEET_CONFIG.keys())
         self.current_ship_idx = 0
         self.placement_horizontal = True
-        self.status_message = "Bem-vindo! Escolhe Host ou Join."
+        self.status_message = "Bem-vindo! Escolhe Host ou Procurar Sala."
 
     def run(self):
         running = True
@@ -75,6 +79,8 @@ class BattleshipGUI:
             self.screen.fill(COLOR_BG)
             if self.ui_state == "MENU":
                 self.draw_menu()
+            elif self.ui_state == "BROWSER":
+                self.draw_browser()
             elif self.ui_state == "CONNECTING":
                 self.draw_connecting()
             elif self.ui_state == "PLAYING":
@@ -83,9 +89,16 @@ class BattleshipGUI:
             pygame.display.flip()
             self.clock.tick(60)
 
-        self.net.close()
+        self._cleanup()
         pygame.quit()
         sys.exit()
+
+    def _cleanup(self):
+        if self.broadcaster:
+            self.broadcaster.stop()
+        if self.listener:
+            self.listener.stop()
+        self.net.close()
 
     def process_network(self):
         msg = self.net.get_message()
@@ -113,7 +126,9 @@ class BattleshipGUI:
                 self.game.record_shot_result(
                     msg["x"], msg["y"], msg["status"], msg["sunk"], msg["game_over"]
                 )
-                if msg.get("sunk"):
+                if msg.get("status") == "ALREADY_SHOT":
+                    self.status_message = "Casa já alvejada! Tenta outra coordenada."
+                elif msg.get("sunk"):
                     self.status_message = f"AFUNDASTE o {msg['sunk']} inimigo!"
                 else:
                     self.status_message = f"Tiro em ({msg['x']}, {msg['y']}): {msg['status']}!"
@@ -134,35 +149,50 @@ class BattleshipGUI:
     def handle_event(self, event):
         if self.ui_state == "MENU":
             self.handle_menu_event(event)
+        elif self.ui_state == "BROWSER":
+            self.handle_browser_event(event)
         elif self.ui_state == "PLAYING":
             self.handle_gameplay_event(event)
 
     def handle_menu_event(self, event):
-        host_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 220, 320, 50)
-        join_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 350, 320, 50)
-        input_rect = pygame.Rect(WINDOW_WIDTH // 2 - 160, 290, 320, 45)
+        host_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 260, 320, 55)
+        join_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 340, 320, 55)
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if host_btn.collidepoint(event.pos):
                 self.game = Game(isHost=True)
                 self.net.start_host(port=55555)
+                # Anunciar via UDP broadcast na LAN
+                self.broadcaster = RoomBroadcaster(room_name="Batalha Naval (Host)", tcp_port=55555)
+                self.broadcaster.start()
                 self.ui_state = "CONNECTING"
-            elif join_btn.collidepoint(event.pos):
-                self.game = Game(isHost=False)
-                self.net.connect_to_host(self.host_ip_input.strip() or "127.0.0.1", port=55555)
-                self.ui_state = "CONNECTING"
-            elif input_rect.collidepoint(event.pos):
-                self.input_active = True
-            else:
-                self.input_active = False
 
-        elif event.type == pygame.KEYDOWN and self.input_active:
-            if event.key == pygame.K_BACKSPACE:
-                self.host_ip_input = self.host_ip_input[:-1]
-            elif event.key == pygame.K_RETURN:
-                self.input_active = False
-            elif len(self.host_ip_input) < 18:
-                self.host_ip_input += event.unicode
+            elif join_btn.collidepoint(event.pos):
+                # Começar a escutar anúncios de salas
+                self.listener = RoomListener()
+                self.listener.start()
+                self.ui_state = "BROWSER"
+
+    def handle_browser_event(self, event):
+        back_btn = pygame.Rect(WINDOW_WIDTH // 2 - 100, 600, 200, 45)
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if back_btn.collidepoint(event.pos):
+                if self.listener:
+                    self.listener.stop()
+                    self.listener = None
+                self.ui_state = "MENU"
+                return
+
+            for btn_rect, ip, port in self.room_buttons:
+                if btn_rect.collidepoint(event.pos):
+                    if self.listener:
+                        self.listener.stop()
+                        self.listener = None
+                    self.game = Game(isHost=False)
+                    self.net.connect_to_host(ip, port=port)
+                    self.ui_state = "CONNECTING"
+                    break
 
     def handle_gameplay_event(self, event):
         if self.game.phase == GamePhase.SETUP:
@@ -192,44 +222,73 @@ class BattleshipGUI:
                 grid_pos = self.screen_to_grid(event.pos, RADAR_ORIGIN)
                 if grid_pos:
                     gx, gy = grid_pos
-                    shot_coords = self.game.fire(gx,gy)
-
+                    shot_coords = self.game.fire(gx, gy)
                     if shot_coords:
                         self.net.send_message({"type": "FIRE", "x": gx, "y": gy})
-                        self.status_message = f"Fogo disparado em ({gx}, {gy})!"
+                        self.status_message = f"Fogo disparado em ({gx}, {gy})! A aguardar resultado..."
                     else:
-                        self.status_message = "Casa ja alvejada ou inválida! Escolhe outra."
+                        self.status_message = "Casa já alvejada ou inválida! Escolhe outra."
 
     def draw_menu(self):
         title = self.font_large.render("NAVAL BATTLE P2P", True, COLOR_TEXT)
-        self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 120)))
+        self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 160)))
 
-        host_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 220, 320, 50)
+        host_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 260, 320, 55)
         h_col = COLOR_BUTTON_HOVER if host_btn.collidepoint(pygame.mouse.get_pos()) else COLOR_BUTTON
         pygame.draw.rect(self.screen, h_col, host_btn, border_radius=6)
         h_txt = self.font_mid.render("Criar Sala (Host)", True, COLOR_TEXT)
         self.screen.blit(h_txt, h_txt.get_rect(center=host_btn.center))
 
-        input_rect = pygame.Rect(WINDOW_WIDTH // 2 - 160, 290, 320, 45)
-        border_col = (80, 160, 240) if self.input_active else (60, 70, 85)
-        pygame.draw.rect(self.screen, COLOR_PANEL, input_rect, border_radius=6)
-        pygame.draw.rect(self.screen, border_col, input_rect, 2, border_radius=6)
-        ip_txt = self.font_mid.render(f"IP: {self.host_ip_input}", True, COLOR_TEXT)
-        self.screen.blit(ip_txt, (input_rect.x + 15, input_rect.y + 10))
-
-        join_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 350, 320, 50)
+        join_btn = pygame.Rect(WINDOW_WIDTH // 2 - 160, 340, 320, 55)
         j_col = COLOR_BUTTON_HOVER if join_btn.collidepoint(pygame.mouse.get_pos()) else COLOR_BUTTON
         pygame.draw.rect(self.screen, j_col, join_btn, border_radius=6)
-        j_txt = self.font_mid.render("Juntar a Sala (Join)", True, COLOR_TEXT)
+        j_txt = self.font_mid.render("Procurar Salas (LAN)", True, COLOR_TEXT)
         self.screen.blit(j_txt, j_txt.get_rect(center=join_btn.center))
+
+    def draw_browser(self):
+        title = self.font_large.render("SALAS DISPONÍVEIS NA REDE LOCAL", True, COLOR_TEXT)
+        self.screen.blit(title, title.get_rect(center=(WINDOW_WIDTH // 2, 100)))
+
+        rooms = self.listener.get_available_rooms() if self.listener else {}
+        self.room_buttons = []
+        start_y = 170
+
+        if not rooms:
+            empty_txt = self.font_mid.render("A procurar salas na rede... Certifica-te de que o Host já criou a sala.", True, COLOR_TEXT_DIM)
+            self.screen.blit(empty_txt, empty_txt.get_rect(center=(WINDOW_WIDTH // 2, 280)))
+        else:
+            mouse_pos = pygame.mouse.get_pos()
+            for ip, (name, port) in rooms.items():
+                btn_rect = pygame.Rect(WINDOW_WIDTH // 2 - 240, start_y, 480, 50)
+                is_hover = btn_rect.collidepoint(mouse_pos)
+                col = COLOR_BUTTON_HOVER if is_hover else COLOR_PANEL
+                pygame.draw.rect(self.screen, col, btn_rect, border_radius=6)
+                pygame.draw.rect(self.screen, (80, 120, 160), btn_rect, 1, border_radius=6)
+
+                lbl = self.font_mid.render(f"{name}  [{ip}:{port}]", True, COLOR_TEXT)
+                self.screen.blit(lbl, (btn_rect.x + 20, btn_rect.y + 14))
+
+                self.room_buttons.append((btn_rect, ip, port))
+                start_y += 65
+
+        # Botão Voltar
+        back_btn = pygame.Rect(WINDOW_WIDTH // 2 - 100, 600, 200, 45)
+        b_col = COLOR_BUTTON_HOVER if back_btn.collidepoint(pygame.mouse.get_pos()) else (50, 55, 65)
+        pygame.draw.rect(self.screen, b_col, back_btn, border_radius=6)
+        b_txt = self.font_mid.render("Voltar", True, COLOR_TEXT)
+        self.screen.blit(b_txt, b_txt.get_rect(center=back_btn.center))
 
     def draw_connecting(self):
         if self.net.isConnected:
+            # Parar o anúncio UDP assim que a ligação é estabelecida
+            if self.broadcaster:
+                self.broadcaster.stop()
+                self.broadcaster = None
             self.ui_state = "PLAYING"
             self.status_message = "Conectado! Posiciona os teus navios."
             return
 
-        txt = self.font_mid.render("A aguardar ligação do adversário...", True, COLOR_TEXT)
+        txt = self.font_mid.render("A aguardar ligação...", True, COLOR_TEXT)
         self.screen.blit(txt, txt.get_rect(center=(WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2)))
 
     def draw_board(self, grid, origin, title):
@@ -249,7 +308,6 @@ class BattleshipGUI:
                 pygame.draw.rect(self.screen, COLOR_GRID_BORDER, rect, 1)
 
     def draw_placement_ghost(self):
-        """Mostra o navio transparente onde o rato está a pairar."""
         if self.current_ship_idx >= len(self.fleet_keys):
             return
 
@@ -284,6 +342,8 @@ class BattleshipGUI:
             phase_str = "A aguardar que o adversário termine a colocação..."
         elif self.game.phase == GamePhase.MY_TURN:
             phase_str = "O TEU TURNO: Clica no Radar para disparar!"
+        elif self.game.phase == GamePhase.WAITING_FOR_RESULT:
+            phase_str = "A aguardar confirmação do tiro..."
         elif self.game.phase == GamePhase.OPPONENT_TURN:
             phase_str = "TURNO DO ADVERSÁRIO: A aguardar disparo..."
         elif self.game.phase == GamePhase.GAME_OVER:
