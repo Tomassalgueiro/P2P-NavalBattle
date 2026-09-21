@@ -134,12 +134,3 @@ class Table:
             for line in self.grid:
                 print(line)
 
-table = Table()
-
-
-# 1. Edge test: Carrier (len 5) at x=5 should succeed (occupies 5, 6, 7, 8, 9)
-table.place_ship("Carrier", 5, 0, horizontal=True) 
-table.place_ship("Battleship", 7, 0, horizontal=True)
-table.place_ship("Destroyer", 0, 0, horizontal=False)
-
-table.display(hide_ships=False)
